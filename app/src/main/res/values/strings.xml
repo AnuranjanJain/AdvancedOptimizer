@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Power Sentinel</string>
+    <string name="device_admin_description">Allows Power Sentinel to apply managed-device package controls when the device is enrolled for management.</string>
+</resources>
