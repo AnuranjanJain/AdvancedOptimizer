@@ -29,11 +29,13 @@ public final class BatteryProbe {
                 new IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         );
         boolean charging = false;
+        int tempDeciC = -1;
         if (batteryIntent != null) {
             int status = batteryIntent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
             charging = status == BatteryManager.BATTERY_STATUS_CHARGING
                     || status == BatteryManager.BATTERY_STATUS_FULL;
+            tempDeciC = batteryIntent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1);
         }
-        return new BatterySnapshot(level, current, charging);
+        return new BatterySnapshot(level, current, charging, tempDeciC);
     }
 }
