@@ -1,4 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#0B1020</color>
+    
+    <!-- Material 3 Colors -->
+    <color name="colorPrimary">#0F766E</color>
+    <color name="colorOnPrimary">#FFFFFF</color>
+    <color name="colorPrimaryContainer">#99F6E4</color>
+    <color name="colorOnPrimaryContainer">#042F2E</color>
+    
+    <color name="colorSecondary">#0EA5E9</color>
+    <color name="colorOnSecondary">#FFFFFF</color>
+    
+    <color name="colorBackground">#F8FAFC</color>
+    <color name="colorOnBackground">#0F172A</color>
+    
+    <color name="colorSurface">#FFFFFF</color>
+    <color name="colorOnSurface">#1E293B</color>
+    <color name="colorSurfaceVariant">#E2E8F0</color>
+    <color name="colorOnSurfaceVariant">#475569</color>
+
+    <!-- Score Colors -->
+    <color name="scoreCritical">#B91C1C</color>
+    <color name="scoreAggressive">#C2410C</color>
+    <color name="scoreBalanced">#0E7490</color>
+    <color name="scoreLow">#0F766E</color>
 </resources>
