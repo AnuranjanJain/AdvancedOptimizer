@@ -45,6 +45,22 @@ public final class OptimizationController {
         return runRootCommand("pm trim-caches 999G");
     }
 
+    public ShellResult setWifiEnabled(boolean enabled) {
+        String command = enabled ? "svc wifi enable" : "svc wifi disable";
+        return runRootCommand(command);
+    }
+
+    public ShellResult setBluetoothEnabled(boolean enabled) {
+        String command = enabled ? "svc bluetooth enable" : "svc bluetooth disable";
+        return runRootCommand(command);
+    }
+
+    public ShellResult setLocationEnabled(boolean enabled) {
+        // 3 = High accuracy (on), 0 = Off
+        String value = enabled ? "3" : "0";
+        return runRootCommand("settings put secure location_mode " + value);
+    }
+
     private ShellResult runRootCommand(String command) {
         Process process = null;
         try {
