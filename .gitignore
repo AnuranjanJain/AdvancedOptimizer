@@ -8,3 +8,5 @@ captures/
 *.apk
 *.aab
 build_output.txt
+gradle-8.9/
+gradle-8.9-bin.zip

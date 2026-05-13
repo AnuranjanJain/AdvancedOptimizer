@@ -23,6 +23,15 @@
             </intent-filter>
         </activity>
 
+        <service
+            android:name=".system.PowerAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".admin.PowerSentinelDeviceAdminReceiver"
             android:description="@string/device_admin_description"
