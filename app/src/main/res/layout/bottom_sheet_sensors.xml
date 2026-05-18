@@ -49,7 +49,7 @@
                 android:id="@+id/text_wifi_stats"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Temp: -- °C  |  Est: 50mAh"
+                android:text="Temp: -- deg C  |  Est: 50mAh"
                 android:textSize="12sp"
                 android:textColor="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
@@ -93,7 +93,7 @@
                 android:id="@+id/text_bt_stats"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Temp: -- °C  |  Est: 20mAh"
+                android:text="Temp: -- deg C  |  Est: 20mAh"
                 android:textSize="12sp"
                 android:textColor="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
@@ -137,7 +137,7 @@
                 android:id="@+id/text_gps_stats"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Temp: -- °C  |  Est: 15mAh"
+                android:text="Temp: -- deg C  |  Est: 15mAh"
                 android:textSize="12sp"
                 android:textColor="?attr/colorOnSurfaceVariant" />
         </LinearLayout>

@@ -156,7 +156,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="🤖  AI Power Plan"
+                            android:text="AI Power Plan"
                             android:textSize="20sp"
                             android:textStyle="bold"
                             android:textColor="?attr/colorOnSurface" />
@@ -211,7 +211,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="📡  Hardware Sensors"
+                            android:text="Hardware Sensors"
                             android:textSize="20sp"
                             android:textStyle="bold"
                             android:textColor="?attr/colorOnSurface"
@@ -243,7 +243,7 @@
                                     android:id="@+id/text_wifi_stats"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="Temp: -- °C  |  Est: ~50mAh/hr"
+                                    android:text="Temp: -- deg C  |  Est: ~50mAh/hr"
                                     android:textSize="12sp"
                                     android:textColor="?attr/colorOnSurfaceVariant"
                                     android:layout_marginTop="2dp" />
@@ -289,7 +289,7 @@
                                     android:id="@+id/text_bt_stats"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="Temp: -- °C  |  Est: ~20mAh/hr"
+                                    android:text="Temp: -- deg C  |  Est: ~20mAh/hr"
                                     android:textSize="12sp"
                                     android:textColor="?attr/colorOnSurfaceVariant"
                                     android:layout_marginTop="2dp" />
@@ -335,7 +335,7 @@
                                     android:id="@+id/text_gps_stats"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="Temp: -- °C  |  Est: ~15mAh/hr"
+                                    android:text="Temp: -- deg C  |  Est: ~15mAh/hr"
                                     android:textSize="12sp"
                                     android:textColor="?attr/colorOnSurfaceVariant"
                                     android:layout_marginTop="2dp" />
@@ -540,7 +540,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="🔬  All Detected Hardware Sensors"
+                    android:text="All Detected Hardware Sensors"
                     android:textSize="18sp"
                     android:textStyle="bold"
                     android:textColor="?attr/colorOnSurface"

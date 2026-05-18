@@ -7,10 +7,14 @@ import android.net.wifi.WifiManager;
 import android.location.LocationManager;
 
 import androidx.annotation.NonNull;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.PeriodicWorkRequest;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
+import androidx.work.WorkManager;
 
 import java.util.Calendar;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Background worker that periodically samples device sensor states and battery metrics.
@@ -19,11 +23,25 @@ import java.util.Calendar;
 public class AIAgentWorker extends Worker {
 
     private static final String PREFS_NAME = "ai_agent_data";
+    private static final String WORK_NAME = "power_sentinel_learning";
     // Keys for each hour slot: wifi_on_h0 ... wifi_on_h23, bt_on_h0 ... bt_on_h23, gps_on_h0 ... gps_on_h23
     // Values: number of times the sensor was found ON at that hour
 
     public AIAgentWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
+    }
+
+    public static void schedule(Context context) {
+        PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
+                AIAgentWorker.class,
+                3,
+                TimeUnit.HOURS
+        ).build();
+        WorkManager.getInstance(context.getApplicationContext()).enqueueUniquePeriodicWork(
+                WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                request
+        );
     }
 
     @NonNull

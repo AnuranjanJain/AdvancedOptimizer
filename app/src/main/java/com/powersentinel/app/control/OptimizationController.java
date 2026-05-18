@@ -41,6 +41,10 @@ public final class OptimizationController {
         return runRootCommand("pm enable " + shellQuote(packageName));
     }
 
+    public ShellResult forceStopPackageWithRoot(String packageName) {
+        return runRootCommand("am force-stop " + shellQuote(packageName));
+    }
+
     public ShellResult trimGlobalCachesWithRoot() {
         return runRootCommand("pm trim-caches 999G");
     }

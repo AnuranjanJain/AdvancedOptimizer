@@ -16,21 +16,25 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = Mint80,
+    secondary = Sky80,
+    tertiary = Coral80,
+    background = DeepInk,
+    surface = DeepInk
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    primary = Teal40,
+    secondary = Blue40,
+    tertiary = Coral40,
+    background = SoftMist,
+    surface = SoftMist
 )
 
 @Composable
 fun PowerSentinelTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    darkTheme: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
