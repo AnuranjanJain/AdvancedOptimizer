@@ -17,18 +17,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.powersentinel.app.analyze.AIPlanGenerator
 import com.powersentinel.app.analyze.PowerAnalyzer
 import com.powersentinel.app.control.OptimizationController
@@ -88,8 +93,19 @@ private val TextMuted = Color(0xFFAAB6C8)
 private enum class DashboardTab {
     OVERVIEW,
     APPS,
-    SENSORS
+    SENSORS,
+    SETTINGS
 }
+
+private data class CacheThresholdSettings(
+    val generalCacheMb: Int,
+    val socialCacheMb: Int,
+    val aiAutoBatterySaver: Boolean,
+    val autoWifi: Boolean,
+    val autoMobileData: Boolean,
+    val autoSync: Boolean,
+    val autoBluetooth: Boolean
+)
 
 @Composable
 fun DashboardScreen() {
@@ -105,15 +121,22 @@ fun DashboardScreen() {
     var sensorDrains by remember { mutableStateOf<List<SensorDrainReport>>(emptyList()) }
     var selectedTab by remember { mutableStateOf(DashboardTab.OVERVIEW) }
     var loading by remember { mutableStateOf(true) }
+    var optimizing by remember { mutableStateOf(false) }
     var showConfirm by remember { mutableStateOf(false) }
+    var runReport by remember { mutableStateOf<OptimizationRunReport?>(null) }
+    var cacheSettings by remember { mutableStateOf(readCacheThresholdSettings(context)) }
+    var settingsRevision by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(settingsRevision) {
         plan = withContext(Dispatchers.IO) {
             AIPlanGenerator(context).generatePlan(rootAvailable, deviceOwnerAvailable)
         }
         appReports = withContext(Dispatchers.IO) { loadAppReports(context) }
         sensorDrains = withContext(Dispatchers.IO) { SensorDrainProbe(context).read() }
         loading = false
+    }
+
+    LaunchedEffect(Unit) {
         while (true) {
             battery = BatteryHealthProbe(context).read()
             delay(4000)
@@ -136,7 +159,7 @@ fun DashboardScreen() {
         ) {
             item { Spacer(modifier = Modifier.height(8.dp)) }
             item {
-                TopBar(rootAvailable, deviceOwnerAvailable)
+                TopBar(onSettingsClick = { selectedTab = DashboardTab.SETTINGS })
             }
             item {
                 BatteryHero(battery)
@@ -179,6 +202,20 @@ fun DashboardScreen() {
                         SensorDrainCard(report)
                     }
                 }
+                DashboardTab.SETTINGS -> {
+                    item {
+                        OptimizationSettingsPanel(
+                            settings = cacheSettings,
+                            rootAvailable = rootAvailable,
+                            deviceOwnerAvailable = deviceOwnerAvailable,
+                            onSettingsChanged = { updated ->
+                                cacheSettings = updated
+                                saveCacheThresholdSettings(context, updated)
+                                settingsRevision++
+                            }
+                        )
+                    }
+                }
             }
             item { Spacer(modifier = Modifier.height(18.dp)) }
         }
@@ -186,23 +223,29 @@ fun DashboardScreen() {
 
     val currentPlan = plan
     if (showConfirm && currentPlan != null) {
-        AlertDialog(
-            onDismissRequest = { showConfirm = false },
-            title = { Text("Optimize now?") },
-            text = { Text(currentPlan.consentText) },
-            confirmButton = {
-                Button(onClick = {
+        OptimizationPreviewDialog(
+            plan = currentPlan,
+            optimizing = optimizing,
+            onRun = {
+                scope.launch {
+                    optimizing = true
+                    runReport = executePlan(context, currentPlan)
+                    optimizing = false
                     showConfirm = false
-                    scope.launch { executePlan(context, currentPlan) }
-                }) {
-                    Text("Run")
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showConfirm = false }) {
-                    Text("Cancel")
-                }
-            }
+            onDismiss = { if (!optimizing) showConfirm = false }
+        )
+    }
+
+    val currentReport = runReport
+    if (currentReport != null) {
+        OptimizationReportDialog(
+            report = currentReport,
+            onOpenSuggestion = {
+                currentReport.firstManualAction?.let { openManualAction(context, it) }
+            },
+            onDismiss = { runReport = null }
         )
     }
 }
@@ -229,7 +272,7 @@ private fun GlowBackground() {
 }
 
 @Composable
-private fun TopBar(rootAvailable: Boolean, deviceOwnerAvailable: Boolean) {
+private fun TopBar(onSettingsClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -239,10 +282,23 @@ private fun TopBar(rootAvailable: Boolean, deviceOwnerAvailable: Boolean) {
             Text("Power Sentinel", color = TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             Text("Battery intelligence console", color = TextMuted, fontSize = 13.sp)
         }
-        Column(horizontalAlignment = Alignment.End) {
-            Pill(if (rootAvailable) "Root" else "Non-root")
-            Spacer(modifier = Modifier.height(6.dp))
-            Pill(if (deviceOwnerAvailable) "Owner" else "Play safe")
+        Button(
+            onClick = onSettingsClick,
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.White.copy(alpha = 0.09f),
+                contentColor = TextPrimary
+            ),
+            modifier = Modifier
+                .height(46.dp)
+                .border(
+                    1.dp,
+                    Brush.horizontalGradient(listOf(ElectricBlue.copy(alpha = 0.55f), GlowPurple.copy(alpha = 0.70f))),
+                    RoundedCornerShape(18.dp)
+                ),
+            contentPadding = ButtonDefaults.ContentPadding
+        ) {
+            Text("Settings", fontSize = 13.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -529,6 +585,248 @@ private fun DeviceHealthGrid(
 }
 
 @Composable
+private fun OptimizationSettingsPanel(
+    settings: CacheThresholdSettings,
+    rootAvailable: Boolean,
+    deviceOwnerAvailable: Boolean,
+    onSettingsChanged: (CacheThresholdSettings) -> Unit
+) {
+    GlassPanel {
+        Text("Optimization Settings", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            "Choose what AI may apply after consent. Wi-Fi/mobile data automation needs root; sync can be paused by the app.",
+            color = TextMuted,
+            fontSize = 13.sp
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        DeviceModeSettings(rootAvailable, deviceOwnerAvailable)
+        Spacer(modifier = Modifier.height(14.dp))
+        AutoSaverSettings(settings, onSettingsChanged)
+        Spacer(modifier = Modifier.height(16.dp))
+        ThresholdControl(
+            title = "Normal apps",
+            detail = "Ignore cache below this size.",
+            valueMb = settings.generalCacheMb,
+            minMb = 10,
+            maxMb = 500,
+            stepMb = 10,
+            onValueChange = {
+                onSettingsChanged(settings.copy(generalCacheMb = it.coerceAtMost(settings.socialCacheMb)))
+            }
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        ThresholdControl(
+            title = "Social apps",
+            detail = "Facebook, Instagram, WhatsApp, Telegram, Discord, Reddit, and similar apps.",
+            valueMb = settings.socialCacheMb,
+            minMb = 20,
+            maxMb = 1000,
+            stepMb = 10,
+            onValueChange = {
+                onSettingsChanged(settings.copy(socialCacheMb = it.coerceAtLeast(settings.generalCacheMb)))
+            }
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile("Normal threshold", "${settings.generalCacheMb} MB", Modifier.weight(1f))
+            MetricTile("Social threshold", "${settings.socialCacheMb} MB", Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun DeviceModeSettings(rootAvailable: Boolean, deviceOwnerAvailable: Boolean) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.055f))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
+            .padding(14.dp)
+    ) {
+        Text("Device mode", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile(
+                "Root access",
+                if (rootAvailable) "Root" else "Non-root",
+                Modifier.weight(1f)
+            )
+            MetricTile(
+                "Control mode",
+                if (deviceOwnerAvailable) "Owner" else "Guided",
+                Modifier.weight(1f)
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            if (rootAvailable) {
+                "Root actions can run after your consent. Android-protected changes still respect system limits."
+            } else {
+                "Non-root mode keeps restricted actions guided through Android settings and Play Store-safe controls."
+            },
+            color = TextMuted,
+            fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+private fun AutoSaverSettings(
+    settings: CacheThresholdSettings,
+    onSettingsChanged: (CacheThresholdSettings) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.055f))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
+            .padding(14.dp)
+    ) {
+        SettingsSwitchRow(
+            title = "AI auto battery saving",
+            detail = "Allows selected optimizations to run after you press Run Core.",
+            checked = settings.aiAutoBatterySaver,
+            onCheckedChange = { onSettingsChanged(settings.copy(aiAutoBatterySaver = it)) }
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingsSwitchRow(
+            title = "Wi-Fi sleep saver",
+            detail = "Root only. Non-root opens Wi-Fi settings.",
+            checked = settings.autoWifi,
+            enabled = settings.aiAutoBatterySaver,
+            onCheckedChange = { onSettingsChanged(settings.copy(autoWifi = it)) }
+        )
+        SettingsSwitchRow(
+            title = "Mobile data sleep saver",
+            detail = "Root only. Useful in weak signal nights.",
+            checked = settings.autoMobileData,
+            enabled = settings.aiAutoBatterySaver,
+            onCheckedChange = { onSettingsChanged(settings.copy(autoMobileData = it)) }
+        )
+        SettingsSwitchRow(
+            title = "Auto-sync rest",
+            detail = "Pauses Android sync during learned idle windows.",
+            checked = settings.autoSync,
+            enabled = settings.aiAutoBatterySaver,
+            onCheckedChange = { onSettingsChanged(settings.copy(autoSync = it)) }
+        )
+        SettingsSwitchRow(
+            title = "Bluetooth rest",
+            detail = "Root only. Keep off if you use wearables overnight.",
+            checked = settings.autoBluetooth,
+            enabled = settings.aiAutoBatterySaver,
+            onCheckedChange = { onSettingsChanged(settings.copy(autoBluetooth = it)) }
+        )
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    title: String,
+    detail: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                color = if (enabled) TextPrimary else TextMuted.copy(alpha = 0.55f),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(detail, color = TextMuted, fontSize = 12.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = TextPrimary,
+                checkedTrackColor = GlowPurple.copy(alpha = 0.75f),
+                uncheckedThumbColor = TextMuted,
+                uncheckedTrackColor = Color.White.copy(alpha = 0.12f)
+            )
+        )
+    }
+}
+
+@Composable
+private fun ThresholdControl(
+    title: String,
+    detail: String,
+    valueMb: Int,
+    minMb: Int,
+    maxMb: Int,
+    stepMb: Int,
+    onValueChange: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.055f))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
+            .padding(14.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(detail, color = TextMuted, fontSize = 12.sp)
+            }
+            Text("${valueMb} MB", color = ElectricBlue, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            StepButton(
+                text = "-",
+                enabled = valueMb > minMb,
+                modifier = Modifier.weight(1f)
+            ) {
+                onValueChange((valueMb - stepMb).coerceAtLeast(minMb))
+            }
+            StepButton(
+                text = "+",
+                enabled = valueMb < maxMb,
+                modifier = Modifier.weight(1f)
+            ) {
+                onValueChange((valueMb + stepMb).coerceAtMost(maxMb))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StepButton(text: String, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(42.dp),
+        shape = RoundedCornerShape(15.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.White.copy(alpha = 0.075f),
+            contentColor = TextPrimary,
+            disabledContainerColor = Color.White.copy(alpha = 0.035f),
+            disabledContentColor = TextMuted.copy(alpha = 0.45f)
+        )
+    ) {
+        Text(text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
 private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
@@ -558,10 +856,12 @@ private fun ActionCard(action: OptimizationAction) {
     GlassPanel {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(action.title, color = TextPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Text("${action.estimatedSavingsScore}", color = SoftPurple, fontWeight = FontWeight.Bold)
+            Pill(action.category)
         }
         Spacer(modifier = Modifier.height(8.dp))
         Text(action.detail, color = TextMuted, fontSize = 13.sp)
+        Spacer(modifier = Modifier.height(10.dp))
+        GainStrip(action)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             if (action.automatic) "Auto after consent" else "Android confirmation required",
@@ -569,6 +869,309 @@ private fun ActionCard(action: OptimizationAction) {
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+@Composable
+private fun OptimizationPreviewDialog(
+    plan: OptimizationPlan,
+    optimizing: Boolean,
+    onRun: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val coreActions = plan.actions.filter { it.automatic || it.kind.name.startsWith("ROOT_") }
+    val suggestions = plan.actions.filter { !it.automatic && it.kind != OptimizationAction.Kind.REVIEW_ONLY }
+    val cacheActions = plan.cacheActions()
+    val cacheTargetMb = cacheActions.cacheTargetMb()
+    val totalBattery = plan.actions.sumOf { it.estimatedBatteryPercent }.coerceAtMost(18.0)
+    val totalIdleMinutes = plan.actions.sumOf { it.estimatedIdleMinutes }.coerceAtMost(720)
+    val totalSot = plan.actions.sumOf { it.estimatedSotMinutes }.coerceAtMost(60)
+
+    GlassDialogShell(
+        title = "Optimize Now",
+        onDismiss = onDismiss,
+        content = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 390.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    "Core actions run only after consent. In non-root mode, Android handles restricted changes through Settings.",
+                    color = TextMuted,
+                    fontSize = 13.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    DialogMetricTile("Battery", "+${formatOneDecimal(totalBattery)}%", Modifier.weight(1f))
+                    DialogMetricTile("Idle", "+${minutesShort(totalIdleMinutes)}", Modifier.weight(1f))
+                    DialogMetricTile("SOT", "+${totalSot}m", Modifier.weight(1f))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    DialogMetricTile(
+                        "Cache",
+                        if (cacheTargetMb > 0L) "${cacheTargetMb} MB" else "Clean",
+                        Modifier.weight(1f)
+                    )
+                    DialogMetricTile(
+                        "Cache apps",
+                        if (cacheActions.isEmpty()) "0" else cacheActions.size.toString(),
+                        Modifier.weight(1f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Cache cleanup", color = TextPrimary, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                if (cacheActions.isEmpty()) {
+                    Text("No app cache is above your current thresholds. Normal apps below the limit are ignored.", color = TextMuted, fontSize = 13.sp)
+                } else {
+                    cacheActions.take(2).forEach { action ->
+                        OptimizationActionRow(action)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Core optimizations", color = TextPrimary, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                if (coreActions.isEmpty()) {
+                    Text("No direct root/core actions are available in this mode.", color = TextMuted, fontSize = 13.sp)
+                } else {
+                    coreActions.take(4).forEach { action ->
+                        OptimizationActionRow(action)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Smart suggestions", color = TextPrimary, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                suggestions.take(3).forEach { action ->
+                    OptimizationActionRow(action)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        },
+        actions = {
+            DialogTextButton(text = "Cancel", enabled = !optimizing, onClick = onDismiss)
+            DialogPrimaryButton(
+                text = if (optimizing) "Optimizing..." else "Run Core",
+                enabled = !optimizing,
+                onClick = onRun
+            )
+        }
+    )
+}
+
+@Composable
+private fun OptimizationReportDialog(
+    report: OptimizationRunReport,
+    onOpenSuggestion: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    GlassDialogShell(
+        title = "Optimization Report",
+        onDismiss = onDismiss,
+        content = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 390.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    DialogMetricTile("Battery", "+${formatOneDecimal(report.estimatedBatteryPercent)}%", Modifier.weight(1f))
+                    DialogMetricTile("Idle", "+${minutesShort(report.estimatedIdleMinutes)}", Modifier.weight(1f))
+                    DialogMetricTile("SOT", "+${report.estimatedSotMinutes}m", Modifier.weight(1f))
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    DialogMetricTile("Cache", report.cacheClearedLabel, Modifier.weight(1f))
+                    DialogMetricTile("Cache apps", report.cacheActionCount.toString(), Modifier.weight(1f))
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                Text("Optimized", color = TextPrimary, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(report.cacheStatus, color = if (report.cacheActionCount > 0) Color(0xFF7CFFCB) else TextMuted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(6.dp))
+                if (report.appliedTitles.isEmpty()) {
+                    Text("No automatic action was available. Power Sentinel prepared the best Android-safe suggestions.", color = TextMuted, fontSize = 13.sp)
+                } else {
+                    report.appliedTitles.forEach {
+                        Text("Done: $it", color = Color(0xFF7CFFCB), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text("Suggestions", color = TextPrimary, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                report.suggestionTitles.take(6).forEach {
+                    Text(it, color = TextMuted, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+        },
+        actions = {
+            DialogTextButton(text = "Done", onClick = onDismiss)
+            if (report.firstManualAction != null) {
+                DialogPrimaryButton(text = "Open Setting", onClick = onOpenSuggestion)
+            }
+        }
+    )
+}
+
+@Composable
+private fun GlassDialogShell(
+    title: String,
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+    actions: @Composable () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(30.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0xFF17213A).copy(alpha = 0.98f),
+                            Panel.copy(alpha = 0.96f),
+                            ScreenBlack.copy(alpha = 0.98f)
+                        )
+                    )
+                )
+                .border(
+                    1.dp,
+                    Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.20f),
+                            ElectricBlue.copy(alpha = 0.42f),
+                            GlowPurple.copy(alpha = 0.50f)
+                        )
+                    ),
+                    RoundedCornerShape(30.dp)
+                )
+        ) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                drawCircle(
+                    color = ElectricBlue.copy(alpha = 0.10f),
+                    radius = size.width * 0.34f,
+                    center = Offset(size.width * 0.90f, size.height * 0.08f)
+                )
+                drawCircle(
+                    color = GlowPurple.copy(alpha = 0.08f),
+                    radius = size.width * 0.36f,
+                    center = Offset(size.width * 0.10f, size.height * 0.92f)
+                )
+            }
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(title, color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text("On-device battery intelligence", color = TextMuted, fontSize = 12.sp)
+                    }
+                    Pill("AI")
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                content()
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.White.copy(alpha = 0.055f))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    actions()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DialogPrimaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(18.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = GlowPurple.copy(alpha = 0.50f),
+            contentColor = TextPrimary,
+            disabledContainerColor = GlowPurple.copy(alpha = 0.20f),
+            disabledContentColor = TextPrimary.copy(alpha = 0.55f)
+        ),
+        modifier = Modifier.border(
+            1.dp,
+            Brush.horizontalGradient(listOf(ElectricBlue.copy(alpha = 0.32f), GlowPurple.copy(alpha = 0.70f))),
+            RoundedCornerShape(18.dp)
+        )
+    ) {
+        Text(text, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun DialogTextButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(18.dp),
+        colors = ButtonDefaults.textButtonColors(contentColor = TextMuted)
+    ) {
+        Text(text, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun DialogMetricTile(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.060f))
+            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 11.dp, vertical = 10.dp)
+    ) {
+        Text(label, color = TextMuted, fontSize = 11.sp)
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(value, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun OptimizationActionRow(action: OptimizationAction) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.060f))
+            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(18.dp))
+            .padding(12.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(action.title, color = TextPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text("+${formatOneDecimal(action.estimatedBatteryPercent)}%", color = ElectricBlue, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(5.dp))
+        Text(action.detail, color = TextMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun GainStrip(action: OptimizationAction) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        MiniStat("Battery", "+${formatOneDecimal(action.estimatedBatteryPercent)}%", Modifier.weight(1f))
+        MiniStat("Idle", "+${minutesShort(action.estimatedIdleMinutes)}", Modifier.weight(1f))
+        MiniStat("SOT", "+${action.estimatedSotMinutes}m", Modifier.weight(1f))
     }
 }
 
@@ -623,7 +1226,24 @@ private fun Pill(text: String) {
     )
 }
 
-private suspend fun executePlan(context: Context, plan: OptimizationPlan) {
+private data class OptimizationRunReport(
+    val appliedTitles: List<String>,
+    val suggestionTitles: List<String>,
+    val firstManualAction: OptimizationAction?,
+    val cacheClearedLabel: String,
+    val cacheStatus: String,
+    val cacheActionCount: Int,
+    val estimatedBatteryPercent: Double,
+    val estimatedIdleMinutes: Int,
+    val estimatedSotMinutes: Int
+)
+
+private suspend fun executePlan(context: Context, plan: OptimizationPlan): OptimizationRunReport {
+    val applied = mutableListOf<String>()
+    val cacheActions = plan.cacheActions()
+    val cacheTargetMb = cacheActions.cacheTargetMb()
+    var cacheTrimApplied = false
+    var cacheTrimAttempted = false
     withContext(Dispatchers.IO) {
         val controller = OptimizationController(context)
         var rootTrimDone = false
@@ -631,30 +1251,116 @@ private suspend fun executePlan(context: Context, plan: OptimizationPlan) {
             when (action.kind) {
                 OptimizationAction.Kind.ROOT_TRIM_CACHE -> {
                     if (!rootTrimDone) {
-                        controller.trimGlobalCachesWithRoot()
+                        cacheTrimAttempted = true
+                        if (controller.trimGlobalCachesWithRoot().isSuccess()) {
+                            cacheTrimApplied = true
+                            applied += action.title
+                        }
                         rootTrimDone = true
                     }
                 }
                 OptimizationAction.Kind.ROOT_FORCE_STOP -> {
                     if (action.packageName != null) {
-                        controller.forceStopPackageWithRoot(action.packageName)
+                        if (controller.forceStopPackageWithRoot(action.packageName).isSuccess()) {
+                            applied += action.title
+                        }
                     }
+                }
+                OptimizationAction.Kind.ROOT_DISABLE_WIFI -> {
+                    if (controller.setWifiEnabled(false).isSuccess()) applied += action.title
+                }
+                OptimizationAction.Kind.ROOT_DISABLE_BLUETOOTH -> {
+                    if (controller.setBluetoothEnabled(false).isSuccess()) applied += action.title
+                }
+                OptimizationAction.Kind.ROOT_DISABLE_LOCATION -> {
+                    if (controller.setLocationEnabled(false).isSuccess()) applied += action.title
+                }
+                OptimizationAction.Kind.ROOT_DISABLE_MOBILE_DATA -> {
+                    if (controller.setMobileDataEnabled(false).isSuccess()) applied += action.title
+                }
+                OptimizationAction.Kind.DISABLE_SYNC -> {
+                    if (controller.setMasterSyncEnabled(false)) applied += action.title
                 }
                 else -> Unit
             }
         }
     }
 
-    val firstManual = plan.actions.firstOrNull { !it.automatic }
-    if (firstManual != null) {
-        openManualAction(context, firstManual)
+    val firstManual = plan.actions.firstOrNull { !it.automatic && it.kind != OptimizationAction.Kind.REVIEW_ONLY }
+    val countedActions = plan.actions.filter { it.automatic || it == firstManual || it.kind != OptimizationAction.Kind.REVIEW_ONLY }
+    val cacheStatus = when {
+        cacheTrimApplied -> "Cache cleared: Android trim-cache command completed for apps above threshold."
+        cacheTrimAttempted -> "Cache cleanup attempted, but Android/root did not confirm completion."
+        cacheActions.isNotEmpty() -> "Cache cleanup ready: ${cacheActions.size} app${if (cacheActions.size == 1) "" else "s"} above threshold. Non-root mode opens app storage settings."
+        else -> "Cache scan complete: no app cache is above your current thresholds."
     }
     Toast.makeText(context, "Optimization pass finished.", Toast.LENGTH_LONG).show()
+    return OptimizationRunReport(
+        appliedTitles = applied,
+        suggestionTitles = plan.actions
+            .filter { !it.automatic && it.kind != OptimizationAction.Kind.REVIEW_ONLY }
+            .map { "${it.title}: ${it.expectedOutcome}" },
+        firstManualAction = firstManual,
+        cacheClearedLabel = when {
+            cacheTrimApplied && cacheTargetMb > 0L -> "${cacheTargetMb} MB"
+            cacheTrimApplied -> "Done"
+            cacheTargetMb > 0L -> "${cacheTargetMb} MB"
+            else -> "Clean"
+        },
+        cacheStatus = cacheStatus,
+        cacheActionCount = cacheActions.size,
+        estimatedBatteryPercent = countedActions.sumOf { it.estimatedBatteryPercent }.coerceAtMost(18.0),
+        estimatedIdleMinutes = countedActions.sumOf { it.estimatedIdleMinutes }.coerceAtMost(720),
+        estimatedSotMinutes = countedActions.sumOf { it.estimatedSotMinutes }.coerceAtMost(60)
+    )
+}
+
+private fun OptimizationPlan.cacheActions(): List<OptimizationAction> {
+    return actions.filter { it.category.equals("Cache", ignoreCase = true) }
+}
+
+private fun List<OptimizationAction>.cacheTargetMb(): Long {
+    val pattern = Regex("Cache is around (\\d+) MB")
+    return sumOf { action ->
+        pattern.find(action.detail)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+    }
+}
+
+private fun readCacheThresholdSettings(context: Context): CacheThresholdSettings {
+    val prefs = context.getSharedPreferences("optimizer_settings", Context.MODE_PRIVATE)
+    val general = prefs.getInt("general_cache_threshold_mb", 50).coerceIn(10, 500)
+    val social = prefs.getInt("social_cache_threshold_mb", 100).coerceIn(general, 1000)
+    return CacheThresholdSettings(
+        generalCacheMb = general,
+        socialCacheMb = social,
+        aiAutoBatterySaver = prefs.getBoolean("ai_auto_battery_saver_enabled", false),
+        autoWifi = prefs.getBoolean("ai_auto_wifi_enabled", true),
+        autoMobileData = prefs.getBoolean("ai_auto_mobile_data_enabled", true),
+        autoSync = prefs.getBoolean("ai_auto_sync_enabled", true),
+        autoBluetooth = prefs.getBoolean("ai_auto_bluetooth_enabled", true)
+    )
+}
+
+private fun saveCacheThresholdSettings(context: Context, settings: CacheThresholdSettings) {
+    context.getSharedPreferences("optimizer_settings", Context.MODE_PRIVATE)
+        .edit()
+        .putInt("general_cache_threshold_mb", settings.generalCacheMb.coerceIn(10, 500))
+        .putInt("social_cache_threshold_mb", settings.socialCacheMb.coerceIn(settings.generalCacheMb, 1000))
+        .putBoolean("ai_auto_battery_saver_enabled", settings.aiAutoBatterySaver)
+        .putBoolean("ai_auto_wifi_enabled", settings.autoWifi)
+        .putBoolean("ai_auto_mobile_data_enabled", settings.autoMobileData)
+        .putBoolean("ai_auto_sync_enabled", settings.autoSync)
+        .putBoolean("ai_auto_bluetooth_enabled", settings.autoBluetooth)
+        .apply()
 }
 
 private fun openManualAction(context: Context, action: OptimizationAction) {
     val intent = when (action.kind) {
         OptimizationAction.Kind.OPEN_USAGE_ACCESS -> Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+        OptimizationAction.Kind.OPEN_WIFI_SETTINGS -> Intent(Settings.ACTION_WIFI_SETTINGS)
+        OptimizationAction.Kind.OPEN_BLUETOOTH_SETTINGS -> Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+        OptimizationAction.Kind.OPEN_NETWORK_SETTINGS -> Intent(Settings.ACTION_WIRELESS_SETTINGS)
+        OptimizationAction.Kind.OPEN_SYNC_SETTINGS -> Intent(Settings.ACTION_SYNC_SETTINGS)
         OptimizationAction.Kind.OPEN_DISPLAY_SETTINGS -> Intent(Settings.ACTION_DISPLAY_SETTINGS)
         OptimizationAction.Kind.OPEN_LOCATION_SETTINGS -> Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
         OptimizationAction.Kind.OPEN_APP_SETTINGS -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -715,6 +1421,10 @@ private fun formatMah(value: Double): String {
     return String.format(Locale.US, "%.0f", value)
 }
 
+private fun formatOneDecimal(value: Double): String {
+    return String.format(Locale.US, "%.1f", value)
+}
+
 private fun mahOrLearning(value: Double): String {
     return if (value > 0.0) "${formatMah(value)} mAh" else "Learning"
 }
@@ -733,4 +1443,14 @@ private fun cacheLabel(bytes: Long): String {
 
 private fun minutesLabel(millis: Long): String {
     return String.format(Locale.US, "%.0f min", millis / 60000.0)
+}
+
+private fun minutesShort(minutes: Int): String {
+    return if (minutes >= 60) {
+        val hours = minutes / 60
+        val mins = minutes % 60
+        if (mins == 0) "${hours}h" else "${hours}h ${mins}m"
+    } else {
+        "${minutes}m"
+    }
 }

@@ -2,6 +2,7 @@ package com.powersentinel.app.control;
 
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
 
 import com.powersentinel.app.admin.PowerSentinelDeviceAdminReceiver;
@@ -59,10 +60,26 @@ public final class OptimizationController {
         return runRootCommand(command);
     }
 
+    public ShellResult setMobileDataEnabled(boolean enabled) {
+        String command = enabled ? "svc data enable" : "svc data disable";
+        return runRootCommand(command);
+    }
+
     public ShellResult setLocationEnabled(boolean enabled) {
         // 3 = High accuracy (on), 0 = Off
         String value = enabled ? "3" : "0";
         return runRootCommand("settings put secure location_mode " + value);
+    }
+
+    public boolean setMasterSyncEnabled(boolean enabled) {
+        try {
+            ContentResolver.setMasterSyncAutomatically(enabled);
+            return ContentResolver.getMasterSyncAutomatically() == enabled;
+        } catch (SecurityException exception) {
+            return false;
+        } catch (RuntimeException exception) {
+            return false;
+        }
     }
 
     private ShellResult runRootCommand(String command) {
