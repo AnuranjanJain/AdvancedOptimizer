@@ -242,9 +242,7 @@ fun DashboardScreen() {
     if (currentReport != null) {
         OptimizationReportDialog(
             report = currentReport,
-            onOpenSuggestion = {
-                currentReport.firstManualAction?.let { openManualAction(context, it) }
-            },
+            onOpenSuggestion = { action -> openManualAction(context, action) },
             onDismiss = { runReport = null }
         )
     }
@@ -966,9 +964,12 @@ private fun OptimizationPreviewDialog(
 @Composable
 private fun OptimizationReportDialog(
     report: OptimizationRunReport,
-    onOpenSuggestion: () -> Unit,
+    onOpenSuggestion: (OptimizationAction) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var manualIndex by remember(report) { mutableStateOf(0) }
+    val manualActions = report.manualActions
+    val nextManualAction = manualActions.getOrNull(manualIndex)
     GlassDialogShell(
         title = "Optimization Report",
         onDismiss = onDismiss,
@@ -1005,6 +1006,15 @@ private fun OptimizationReportDialog(
                 Spacer(modifier = Modifier.height(10.dp))
                 Text("Suggestions", color = TextPrimary, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
+                if (nextManualAction != null) {
+                    Text(
+                        "Next setting ${manualIndex + 1}/${manualActions.size}: ${nextManualAction.title}",
+                        color = ElectricBlue,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
                 report.suggestionTitles.take(6).forEach {
                     Text(it, color = TextMuted, fontSize = 13.sp)
                     Spacer(modifier = Modifier.height(6.dp))
@@ -1013,8 +1023,14 @@ private fun OptimizationReportDialog(
         },
         actions = {
             DialogTextButton(text = "Done", onClick = onDismiss)
-            if (report.firstManualAction != null) {
-                DialogPrimaryButton(text = "Open Setting", onClick = onOpenSuggestion)
+            if (nextManualAction != null) {
+                DialogPrimaryButton(
+                    text = "Open Setting ${manualIndex + 1}/${manualActions.size}",
+                    onClick = {
+                        onOpenSuggestion(nextManualAction)
+                        manualIndex = (manualIndex + 1).coerceAtMost(manualActions.size)
+                    }
+                )
             }
         }
     )
@@ -1229,7 +1245,7 @@ private fun Pill(text: String) {
 private data class OptimizationRunReport(
     val appliedTitles: List<String>,
     val suggestionTitles: List<String>,
-    val firstManualAction: OptimizationAction?,
+    val manualActions: List<OptimizationAction>,
     val cacheClearedLabel: String,
     val cacheStatus: String,
     val cacheActionCount: Int,
@@ -1286,8 +1302,10 @@ private suspend fun executePlan(context: Context, plan: OptimizationPlan): Optim
         }
     }
 
-    val firstManual = plan.actions.firstOrNull { !it.automatic && it.kind != OptimizationAction.Kind.REVIEW_ONLY }
-    val countedActions = plan.actions.filter { it.automatic || it == firstManual || it.kind != OptimizationAction.Kind.REVIEW_ONLY }
+    val manualActions = plan.actions
+        .filter { !it.automatic && it.kind != OptimizationAction.Kind.REVIEW_ONLY }
+        .sortedWith(compareByDescending<OptimizationAction> { it.category.equals("Cache", ignoreCase = true) })
+    val countedActions = plan.actions.filter { it.kind != OptimizationAction.Kind.REVIEW_ONLY }
     val cacheStatus = when {
         cacheTrimApplied -> "Cache cleared: Android trim-cache command completed for apps above threshold."
         cacheTrimAttempted -> "Cache cleanup attempted, but Android/root did not confirm completion."
@@ -1300,7 +1318,7 @@ private suspend fun executePlan(context: Context, plan: OptimizationPlan): Optim
         suggestionTitles = plan.actions
             .filter { !it.automatic && it.kind != OptimizationAction.Kind.REVIEW_ONLY }
             .map { "${it.title}: ${it.expectedOutcome}" },
-        firstManualAction = firstManual,
+        manualActions = manualActions,
         cacheClearedLabel = when {
             cacheTrimApplied && cacheTargetMb > 0L -> "${cacheTargetMb} MB"
             cacheTrimApplied -> "Done"

@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.1.1 - Optimization Report Bugfix
+
+This patch fixes the Optimization Report settings handoff after running Optimize Now.
+
+### Fixes
+
+- Replaced the single saved manual action with a full manual action queue.
+- The Open Setting button now advances through pending suggestions instead of reopening the same app/settings screen.
+- Cache cleanup suggestions are prioritized first when cache-heavy apps are present.
+- The report now shows progress such as `Open Setting 1/3` and `Next setting 2/3`.
+
 ## v2.1 - AI Optimization Release
 
 Power Sentinel 2.1 focuses on the app's main USP: AI-guided battery optimization with clear per-app, per-sensor, and cache cleanup feedback.
