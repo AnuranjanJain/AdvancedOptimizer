@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.2 - Device Intelligence Release
+
+Power Sentinel 2.2 deepens the app's device-specific battery model. It adds charging intelligence, more realistic app optimization estimates, safer live mA handling on Android 16/OEM phones, and refreshed release screenshots.
+
+### Highlights
+
+- Added a Charging Intelligence card with charge-cycle guidance, dynamic target charging, estimated cycle cost, and OEM charging-limit detection where Android exposes it.
+- Improved live mA flow on real phones that report blocked or placeholder current values such as `0`, `1`, or `2 mA`.
+- Added a fallback live-current learner using charge-counter and battery-level deltas over time.
+- Changed unreliable tiny current readings to `Learning live flow` instead of showing fake mA values.
+- Removed restricted sysfs power-supply probing to avoid Android 16 SELinux denials on production devices.
+- Made per-app force-close savings dynamic per app using foreground time, service count, cache pressure, recency, app type, and battery context.
+- Made cache cleanup battery impact more honest: cache cleaning mainly frees storage, with only small battery gains unless cache is huge or constantly rebuilt.
+- Refreshed README screenshots for the current dark glass UI.
+
+### Notes
+
+- Exact instant mA depends on what the device vendor exposes through Android `BatteryManager`.
+- On devices such as OnePlus/OxygenOS where current APIs are blocked or noisy, Power Sentinel learns from battery movement over time instead of displaying misleading numbers.
+- Charging-limit and cycle-count readings are shown only when the OEM exposes readable system properties.
+
 ## v2.1.1 - Optimization Report Bugfix
 
 This patch fixes the Optimization Report settings handoff after running Optimize Now.

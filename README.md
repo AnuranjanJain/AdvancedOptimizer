@@ -1,38 +1,43 @@
 # Power Sentinel
 
-Premium Android battery intelligence for people who want to understand what is draining their phone, what can actually be optimized, and what Android safely allows an app to do.
+Premium Android battery intelligence for users who want to understand what is draining their phone, what can actually be optimized, and what Android safely allows an app to do.
 
-Power Sentinel is not just a battery percentage screen. It combines live battery health, per-app drain estimates, per-sensor drain visibility, cache pressure detection, root-aware controls, and on-device optimization planning into one dark blue-purple console.
+Power Sentinel combines live battery health, per-app drain estimates, per-sensor drain visibility, cache pressure detection, charging guidance, root-aware controls, and on-device optimization planning inside one dark blue-purple glass console.
 
 ![Power Sentinel dashboard](assets/screenshots/dashboard.png)
 
-## Why It Exists
+## Version 2.2
 
-Most battery apps show charts. Power Sentinel tries to answer the next question:
-
-> What should I do right now, and how much battery, idle time, or SOT could it save on this phone?
-
-The app learns from local device signals such as usage access, foreground time, active services, cache size, battery flow, screen-off drain, radio state, sync state, display configuration, and sensor metadata. It then produces a consent-based optimization plan instead of generic tips.
-
-## Version 2.1
-
-Power Sentinel 2.1 is the AI optimization release. It adds a stronger Optimize Now flow, phone-specific battery estimates, cache cleanup visibility, and settings for AI-assisted battery saving.
+Power Sentinel 2.2 is the device intelligence release. It focuses on phone-specific numbers instead of generic battery claims: live mA flow is validated, unreliable OEM readings are handled safely, app savings vary per app, cache impact is more honest, and charging advice now reacts to the user's current battery state.
 
 <p align="center">
+  <img src="assets/screenshots/dashboard.png" width="220" alt="Power Sentinel dashboard" />
   <img src="assets/screenshots/optimize-now.png" width="220" alt="Optimize Now AI plan" />
   <img src="assets/screenshots/settings.png" width="220" alt="AI battery saving settings" />
+</p>
+
+<p align="center">
   <img src="assets/screenshots/apps.png" width="220" alt="Per-app battery usage" />
   <img src="assets/screenshots/sensors.png" width="220" alt="Per-sensor battery usage" />
 </p>
+
+## What Makes It Different
+
+Most battery apps stop at charts. Power Sentinel tries to answer the next question:
+
+> What should I do right now, and what could it save on this phone?
+
+The app learns from local device signals such as usage access, foreground time, active services, cache size, battery flow, screen-off drain, radio state, sync state, display configuration, charging state, and sensor metadata. It then produces a consent-based optimization plan instead of generic tips.
 
 ## Core Features
 
 - Premium dark glass UI with blue and purple energy accents.
 - One-time onboarding for permissions, terms, and root/non-root mode.
 - Live battery health console with mA flow, mAh calculator, health, voltage, temperature, and time estimate.
+- Charging Intelligence card with cycle guidance, charge target, cycle cost, and OEM charging-limit detection where available.
 - Per-app battery usage estimates in mAh/hr.
 - Per-sensor battery usage estimates in mAh/hr using Android hardware sensor power metadata.
-- AI Optimize Now panel with battery, idle, SOT, and cache impact.
+- AI Optimize Now panel with battery, idle time, SOT, cache, and cache-app impact.
 - Cache cleanup intelligence with normal/social app thresholds.
 - Settings for AI auto battery saving: Wi-Fi, mobile data, sync, and Bluetooth.
 - Display analysis for resolution, refresh rate, and inferred high-refresh/adaptive panel behavior.
@@ -49,13 +54,24 @@ The optimizer considers:
 - Active service count and background pressure.
 - Cache size and custom cache thresholds.
 - Social app cache behavior.
-- Battery capacity, percentage, and live current flow.
+- Battery capacity, percentage, charging state, and live current flow.
 - Screen-off idle drain samples collected over time.
 - Wi-Fi, mobile data, Bluetooth, GPS, and sync state.
 - Display state, brightness context, and refresh-rate class.
 - Root and Device Owner availability.
 
 The numbers are designed to become more device-specific over time. Early estimates are provisional; after several days of screen-off samples, idle and SOT recommendations become more personalized for that phone.
+
+## Live mA Flow
+
+Android vendors do not expose battery current equally. Some phones report clean live current, while others return blocked or placeholder values.
+
+Power Sentinel 2.2 handles that safely:
+
+- Real current from Android `BatteryManager` is used when it looks reliable.
+- Tiny placeholder values like `0`, `1`, or `2 mA` are ignored.
+- If instant current is blocked, the app learns from charge-counter and battery-level movement over time.
+- Until enough signal is available, the UI says `Learning live flow` instead of showing fake numbers.
 
 ## Optimize Now
 
@@ -72,14 +88,26 @@ It shows:
 
 In root mode, supported actions can run directly after consent. In non-root mode, Power Sentinel stays Play Store-safe and opens the correct Android settings screen where the OS requires confirmation.
 
+![Optimize Now](assets/screenshots/optimize-now.png)
+
 ## Cache Cleanup Rules
 
-Power Sentinel does not treat every small cache as a problem.
+Power Sentinel does not treat every small cache as a battery problem.
 
 - Normal apps: cache below 50 MB is ignored by default.
 - Social apps: cache below 100 MB is ignored by default.
 - Both thresholds can be changed in Settings.
 - Optimize Now reports whether cache cleanup was available, skipped, or completed.
+- Battery impact is intentionally conservative because cache cleanup mostly frees storage unless an app is constantly rebuilding large cache.
+
+## Charging Intelligence
+
+The dashboard now includes AI charge-cycle guidance.
+
+- Reads battery level and thermal state.
+- Estimates how much of a charge cycle the next top-up costs.
+- Suggests a daily target, usually around 80 percent unless heat or OEM settings imply a different target.
+- Detects charging cycle count or charging limit only when the system exposes those properties.
 
 ## Per-App Battery Usage
 

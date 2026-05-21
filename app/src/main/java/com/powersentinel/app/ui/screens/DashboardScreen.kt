@@ -3,6 +3,7 @@ package com.powersentinel.app.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.BatteryManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
@@ -107,6 +108,21 @@ private data class CacheThresholdSettings(
     val autoBluetooth: Boolean
 )
 
+private data class ChargingLimitInfo(
+    val label: String,
+    val source: String,
+    val limitPercent: Int?
+)
+
+private data class ChargingInsight(
+    val cyclesLabel: String,
+    val targetLabel: String,
+    val chargePlan: String,
+    val cycleCostLabel: String,
+    val limitInfo: ChargingLimitInfo,
+    val aiTip: String
+)
+
 @Composable
 fun DashboardScreen() {
     val context = LocalContext.current
@@ -175,6 +191,7 @@ fun DashboardScreen() {
             when (selectedTab) {
                 DashboardTab.OVERVIEW -> {
                     item { PowerCalculator(battery) }
+                    item { ChargingIntelligenceCard(battery) }
                     item { DeviceHealthGrid(battery, displayReport, sensorReport) }
                     item {
                         SectionCard(
@@ -324,7 +341,11 @@ private fun BatteryHero(battery: BatteryHealthReport) {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "${formatMah(battery.currentMilliAmps)} mA live flow",
+                    if (battery.currentMilliAmps >= 10.0) {
+                        "${formatMah(battery.currentMilliAmps)} mA live flow"
+                    } else {
+                        "Learning live flow"
+                    },
                     color = TextMuted,
                     fontSize = 14.sp
                 )
@@ -444,6 +465,56 @@ private fun PowerCalculator(battery: BatteryHealthReport) {
             MetricTile("Full est.", mahOrLearning(battery.estimatedFullMilliAmpHours), Modifier.weight(1f))
             MetricTile(if (battery.charging) "Full in" else "Time left", battery.timeEstimate, Modifier.weight(1f))
         }
+    }
+}
+
+@Composable
+private fun ChargingIntelligenceCard(battery: BatteryHealthReport) {
+    val context = LocalContext.current
+    val insight = remember(context, battery.levelPercent, battery.charging, battery.currentMicroAmps, battery.temperatureDeciCelsius) {
+        buildChargingInsight(context, battery)
+    }
+    GlassPanel {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Charging Intelligence", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "AI charge-cycle guidance updates with your live battery level.",
+                    color = TextMuted,
+                    fontSize = 13.sp
+                )
+            }
+            Pill(if (battery.charging) "Live charge" else "AI")
+        }
+        Spacer(modifier = Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile("Cycles", insight.cyclesLabel, Modifier.weight(1f))
+            MetricTile("Target", insight.targetLabel, Modifier.weight(1f))
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            MetricTile("Charge now", insight.chargePlan, Modifier.weight(1f))
+            MetricTile("Cycle cost", insight.cycleCostLabel, Modifier.weight(1f))
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.White.copy(alpha = 0.055f))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
+                .padding(14.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Charging limit", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(insight.limitInfo.label, color = ElectricBlue, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(insight.limitInfo.source, color = TextMuted, fontSize = 12.sp)
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(insight.aiTip, color = TextMuted, fontSize = 13.sp)
     }
 }
 
@@ -1370,6 +1441,114 @@ private fun saveCacheThresholdSettings(context: Context, settings: CacheThreshol
         .putBoolean("ai_auto_sync_enabled", settings.autoSync)
         .putBoolean("ai_auto_bluetooth_enabled", settings.autoBluetooth)
         .apply()
+}
+
+private fun buildChargingInsight(context: Context, battery: BatteryHealthReport): ChargingInsight {
+    val level = battery.levelPercent.coerceIn(0, 100)
+    val limitInfo = readChargingLimitInfo(context)
+    val target = limitInfo.limitPercent?.coerceIn(60, 100) ?: if (battery.temperatureDeciCelsius >= 380) 75 else 80
+    val deltaToTarget = (target - level).coerceAtLeast(0)
+    val cycleCost = deltaToTarget / 100.0
+    val cycles = readBatteryCycleCount(context)
+    val cyclesLabel = cycles?.toString() ?: "Not exposed"
+    val targetLabel = "$target%"
+    val chargePlan = when {
+        level >= target + 3 -> "Unplug"
+        level >= target -> "Hold"
+        deltaToTarget == 0 -> "No top-up"
+        else -> "+$deltaToTarget%"
+    }
+    val aiTip = chargingAiTip(level, target, battery)
+    return ChargingInsight(
+        cyclesLabel = cyclesLabel,
+        targetLabel = targetLabel,
+        chargePlan = chargePlan,
+        cycleCostLabel = String.format(Locale.US, "%.2f cycle", cycleCost),
+        limitInfo = limitInfo,
+        aiTip = aiTip
+    )
+}
+
+private fun readBatteryCycleCount(context: Context): Int? {
+    val manager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager ?: return null
+    return try {
+        val propertyId = BatteryManager::class.java
+            .getField("BATTERY_PROPERTY_CYCLE_COUNT")
+            .getInt(null)
+        manager.getIntProperty(propertyId).takeIf { it >= 0 && it != Int.MIN_VALUE }
+    } catch (_: ReflectiveOperationException) {
+        null
+    } catch (_: RuntimeException) {
+        null
+    }
+}
+
+private fun readChargingLimitInfo(context: Context): ChargingLimitInfo {
+    val percentKeys = listOf(
+        "charge_control_limit",
+        "battery_charge_limit",
+        "charging_limit",
+        "charge_limit",
+        "battery_protection_threshold",
+        "maximum_charge_limit",
+        "smart_charge_limit"
+    )
+    val toggleKeys = listOf(
+        "protect_battery",
+        "adaptive_charging_enabled",
+        "charging_protection_enabled",
+        "battery_protection",
+        "smart_charging",
+        "optimized_charging_enabled"
+    )
+    for (key in percentKeys) {
+        val value = readSettingValue(context, key) ?: continue
+        val percent = value.toIntOrNull()?.takeIf { it in 50..100 } ?: continue
+        return ChargingLimitInfo("$percent%", "Detected from system setting `$key`.", percent)
+    }
+    for (key in toggleKeys) {
+        val value = readSettingValue(context, key) ?: continue
+        if (value == "1" || value.equals("true", ignoreCase = true) || value.equals("enabled", ignoreCase = true)) {
+            return ChargingLimitInfo("Protected", "System reports `$key` is enabled. OEM target is usually 80-85%.", 80)
+        }
+    }
+    val adaptive = safeSecureSetting(context, "adaptive_charging_enabled")
+    if (adaptive == "1") {
+        return ChargingLimitInfo("Adaptive", "Android adaptive charging appears enabled.", 80)
+    }
+    return ChargingLimitInfo("Not exposed", "No readable OEM charging-limit setting was found on this device.", null)
+}
+
+private fun readSettingValue(context: Context, key: String): String? {
+    val resolver = context.contentResolver
+    return safeSetting { Settings.System.getString(resolver, key) }
+        ?: safeSetting { Settings.Global.getString(resolver, key) }
+        ?: safeSetting { Settings.Secure.getString(resolver, key) }
+}
+
+private fun safeSecureSetting(context: Context, key: String): String? {
+    return safeSetting { Settings.Secure.getString(context.contentResolver, key) }
+}
+
+private fun safeSetting(read: () -> String?): String? {
+    return try {
+        read()
+    } catch (_: SecurityException) {
+        null
+    } catch (_: RuntimeException) {
+        null
+    }
+}
+
+private fun chargingAiTip(level: Int, target: Int, battery: BatteryHealthReport): String {
+    val tempC = battery.temperatureDeciCelsius / 10.0
+    return when {
+        tempC >= 38.0 -> "AI tip: battery is warm at ${String.format(Locale.US, "%.1f", tempC)} C. Prefer slow charging and stop near ${target}% today."
+        level < 20 -> "AI tip: charge now, but stop around ${target}% to reduce full-cycle wear. This top-up uses about ${String.format(Locale.US, "%.2f", (target - level).coerceAtLeast(0) / 100.0)} cycle."
+        level in 20 until target -> "AI tip: a top-up to ${target}% is enough for daily use while avoiding unnecessary full 100% cycles."
+        level in target..90 -> "AI tip: you are inside the healthy daily range. Holding near ${target}% reduces cycle stress compared with charging to 100%."
+        else -> "AI tip: battery is already high. Unplug soon unless you need maximum runtime; staying near 100% adds heat and cycle stress."
+    }
 }
 
 private fun openManualAction(context: Context, action: OptimizationAction) {

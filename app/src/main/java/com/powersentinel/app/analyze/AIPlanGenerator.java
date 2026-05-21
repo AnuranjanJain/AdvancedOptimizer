@@ -165,7 +165,7 @@ public final class AIPlanGenerator {
             if (briefUse && infrequentCount < 4) {
                 infrequentCount++;
                 String detail = report.app.label + " was used briefly today. It is a candidate for force-stop after use.";
-                SavingsEstimate savings = estimateAppSleepSavings(report.score, batteryHealth);
+                SavingsEstimate savings = estimateAppSleepSavings(report, batteryHealth);
                 insights.add(detail);
                 actions.add(new OptimizationAction(
                         rootAvailable
@@ -177,8 +177,8 @@ public final class AIPlanGenerator {
                                 ? "Root mode can force-stop this app now."
                                 : "Android does not let Play Store apps force-stop other apps directly.",
                         rootAvailable
-                                ? "Stops background work for a rarely used app and lets it sleep until you open it again."
-                                : "Open Android app settings and set battery usage to restricted for a similar effect.",
+                                ? "Stops this app's background work until you open it again. Estimate uses its services, cache, foreground time, and recency."
+                                : "Open Android app settings and restrict this app. Estimate uses its services, cache, foreground time, and recency.",
                         report.app.packageName,
                         rootAvailable,
                         Math.min(35, report.score),
@@ -203,8 +203,8 @@ public final class AIPlanGenerator {
                         (socialApp ? "Social cache: " : "Large cache: ") + report.app.label,
                         "Cache is around " + cacheMb + " MB. Threshold is " + thresholdMb + " MB.",
                         rootAvailable
-                                ? "Trims temporary cache pressure across apps and reduces storage wakeups."
-                                : "Open Android app storage settings so you can clear cache for this heavy app.",
+                                ? "Trims temporary cache pressure. Battery gain is small and comes from fewer storage scans, indexing wakeups, and low-storage pressure."
+                                : "Open Android app storage settings. Cache cleanup mainly frees storage; battery gain is small unless cache is huge or constantly rebuilt.",
                         report.app.packageName,
                         rootAvailable,
                         24,
@@ -589,17 +589,45 @@ public final class AIPlanGenerator {
         return new SavingsEstimate(batteryPercent, idleMinutes, estimateSotMinutes(batteryHealth, batteryPercent));
     }
 
-    private SavingsEstimate estimateAppSleepSavings(int score, BatteryHealthReport batteryHealth) {
-        double batteryPercent = clamp(score * 0.045, 0.4, 5.0);
-        int idleMinutes = estimateIdleMinutes(0.9, batteryPercent);
+    private SavingsEstimate estimateAppSleepSavings(AppPowerReport report, BatteryHealthReport batteryHealth) {
+        double foregroundMinutes = report.foregroundMillis / 60000.0;
+        double cacheMb = report.cacheBytes / 1024.0 / 1024.0;
+        int services = report.app.declaredServices.size();
+        long lastUsedAgeMinutes = report.lastUsedMillis <= 0L
+                ? 1440L
+                : Math.max(0L, (System.currentTimeMillis() - report.lastUsedMillis) / 60000L);
+
+        double servicePressure = Math.min(1.4, services * 0.055);
+        double usagePressure = clamp(foregroundMinutes / 90.0, 0.05, 1.25);
+        double cachePressure = clamp(cacheMb / 900.0, 0.0, 0.75);
+        double recencyPressure = lastUsedAgeMinutes < 60L
+                ? 0.85
+                : lastUsedAgeMinutes < 360L ? 0.55 : lastUsedAgeMinutes < 1440L ? 0.35 : 0.18;
+        double scorePressure = clamp(report.score / 100.0, 0.08, 1.0);
+
+        double batteryPercent = clamp(
+                0.18 + (scorePressure * 1.25) + servicePressure + (usagePressure * 0.65) + cachePressure + recencyPressure,
+                0.2,
+                report.app.systemApp ? 1.8 : 6.5
+        );
+        int idleMinutes = estimateIdleMinutes(learnedIdleDrainPercentPerHour(
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+                batteryHealth
+        ), batteryPercent);
         return new SavingsEstimate(batteryPercent, idleMinutes, estimateSotMinutes(batteryHealth, batteryPercent));
     }
 
     private SavingsEstimate estimateCacheSavings(long cacheBytes, BatteryHealthReport batteryHealth) {
         double cacheMb = cacheBytes / 1024.0 / 1024.0;
-        double batteryPercent = clamp(cacheMb / 420.0, 0.3, 2.5);
-        int idleMinutes = estimateIdleMinutes(0.9, batteryPercent);
-        return new SavingsEstimate(batteryPercent, idleMinutes, estimateSotMinutes(batteryHealth, batteryPercent));
+        double storageWakeupPercent = Math.log10(Math.max(10.0, cacheMb)) * 0.08;
+        double lowStoragePressurePercent = cacheMb >= 1024.0 ? 0.25 : cacheMb >= 512.0 ? 0.14 : 0.06;
+        double batteryPercent = clamp(storageWakeupPercent + lowStoragePressurePercent, 0.05, 0.85);
+        int idleMinutes = estimateIdleMinutes(learnedIdleDrainPercentPerHour(
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+                batteryHealth
+        ), batteryPercent);
+        int sotMinutes = (int) Math.max(1, Math.min(6, Math.round(estimateSotMinutes(batteryHealth, batteryPercent) * 0.45)));
+        return new SavingsEstimate(batteryPercent, idleMinutes, sotMinutes);
     }
 
     private double learnedIdleDrainPercentPerHour(SharedPreferences prefs, BatteryHealthReport batteryHealth) {
