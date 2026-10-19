@@ -19,6 +19,8 @@ public final class BatteryHealthProbe {
     private static final String KEY_SMOOTHED_MA = "smoothed_ma";
     private static final long MIN_SAMPLE_MS = 15_000L;
     private static final long MAX_SAMPLE_MS = 20L * 60L * 1000L;
+    private static final double MIN_VALID_CURRENT_MA = 10.0;
+    private static final double MIN_ESTIMATED_CURRENT_MA = 20.0;
 
     private final Context context;
 
@@ -83,20 +85,20 @@ public final class BatteryHealthProbe {
     }
 
     private double chooseBestCurrent(double currentNowMa, double currentAverageMa) {
-        if (currentNowMa >= 10.0) {
+        if (currentNowMa >= MIN_VALID_CURRENT_MA) {
             return currentNowMa;
         }
-        if (currentAverageMa >= 10.0) {
+        if (currentAverageMa >= MIN_VALID_CURRENT_MA) {
             return currentAverageMa;
         }
         return Math.max(0.0, Math.max(currentNowMa, currentAverageMa));
     }
 
     private double chooseReliableCurrent(double instantMa, double estimatedMa) {
-        if (instantMa >= 10.0) {
+        if (instantMa >= MIN_VALID_CURRENT_MA) {
             return smoothCurrent(instantMa);
         }
-        if (estimatedMa >= 20.0) {
+        if (estimatedMa >= MIN_ESTIMATED_CURRENT_MA) {
             return smoothCurrent(estimatedMa);
         }
         return 0.0;
@@ -139,7 +141,7 @@ public final class BatteryHealthProbe {
     private double smoothCurrent(double currentMa) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         float previous = prefs.getFloat(KEY_SMOOTHED_MA, 0f);
-        double smoothed = previous >= 10f ? (previous * 0.65) + (currentMa * 0.35) : currentMa;
+        double smoothed = previous >= (float) MIN_VALID_CURRENT_MA ? (previous * 0.65) + (currentMa * 0.35) : currentMa;
         prefs.edit().putFloat(KEY_SMOOTHED_MA, (float) smoothed).apply();
         return smoothed;
     }
@@ -169,7 +171,7 @@ public final class BatteryHealthProbe {
     }
 
     private String timeEstimate(boolean charging, double currentMa, double remainingMah, double fullMah) {
-        if (currentMa < 10.0 || remainingMah <= 0.0) {
+        if (currentMa < MIN_VALID_CURRENT_MA || remainingMah <= 0.0) {
             return "Learning";
         }
         double hours = charging && fullMah > remainingMah
