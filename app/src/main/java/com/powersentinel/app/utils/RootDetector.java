@@ -6,12 +6,7 @@ import java.io.InputStreamReader;
 
 public class RootDetector {
     public static boolean isRootAvailable() {
-        return checkRootMethod1() || checkRootMethod2() || checkRootMethod3();
-    }
-
-    private static boolean checkRootMethod1() {
-        String buildTags = android.os.Build.TAGS;
-        return buildTags != null && buildTags.contains("test-keys");
+        return checkRootMethod2() || checkRootMethod3();
     }
 
     private static boolean checkRootMethod2() {
